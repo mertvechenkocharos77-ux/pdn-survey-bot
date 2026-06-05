@@ -49,7 +49,6 @@ async def yandex_webhook(request: Request):
         await conn.close()
         raise HTTPException(status_code=404, detail="Participant not found")
     
-    # Заглушка для расчёта баллов (потом замените на свою логику)
     integration_score = 0
     identity_score = 0
     result_text = "Спасибо за участие! Ваши данные сохранены."
