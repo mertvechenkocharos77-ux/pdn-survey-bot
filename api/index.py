@@ -131,8 +131,6 @@ async def yandex_webhook(request: Request):
 
 # ========== АДМИН-ПАНЕЛЬ (только ID, класс, баллы, дата, рекомендация) ==========
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
-    if credentials.username != ADMIN_USERNAME or credentials.password != ADMIN_PASSWORD:
-        raise HTTPException(status_code=401, detail="Unauthorized")
     return True
 
 @app.get("/admin", response_class=HTMLResponse)
