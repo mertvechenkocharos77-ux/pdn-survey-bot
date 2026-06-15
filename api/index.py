@@ -129,7 +129,7 @@ async def yandex_webhook(request: Request):
     return {"status": "ok"}
 
 
-# ========== АДМИН-ПАНЕЛЬ ==========
+# ========== АДМИН-ПАНЕЛЬ (только ID, класс, баллы, дата, рекомендация) ==========
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     if credentials.username != ADMIN_USERNAME or credentials.password != ADMIN_PASSWORD:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -139,7 +139,7 @@ def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
 async def admin_panel(auth: bool = Depends(verify_admin)):
     conn = await get_db()
     rows = await conn.fetch("""
-        SELECT r.*, p.full_name, p.class, p.phone
+        SELECT r.participant_id, r.integration_score, r.identity_score, r.result_text, r.submitted_at, p.class
         FROM survey_results r
         LEFT JOIN participants p ON r.participant_id = p.participant_id
         WHERE r.is_active = TRUE
@@ -164,11 +164,11 @@ async def admin_panel(auth: bool = Depends(verify_admin)):
     <body>
         <h1>Результаты анкетирования</h1>
         <div class="search">
-            <input type="text" id="searchInput" placeholder="Поиск по ID, имени, телефону..." onkeyup="filterTable()">
+            <input type="text" id="searchInput" placeholder="Поиск по ID участника" onkeyup="filterTable()">
         </div>
         <table id="dataTable">
             <thead>
-                <tr><th>ID участника</th><th>ФИО</th><th>Класс</th><th>Телефон</th><th>Балл интеграции</th><th>Балл идентичности</th><th>Дата</th><th>Рекомендация</th></tr>
+                <tr><th>ID участника</th><th>Класс</th><th>Балл интеграции</th><th>Балл идентичности</th><th>Дата заполнения</th><th>Рекомендация</th></tr>
             </thead>
             <tbody>
     """
@@ -176,9 +176,7 @@ async def admin_panel(auth: bool = Depends(verify_admin)):
         html += f"""
             <tr>
                 <td>{row['participant_id']}</td>
-                <td>{row.get('full_name', '')}</td>
                 <td>{row.get('class', '')}</td>
-                <td>{row.get('phone', '')}</td>
                 <td>{row['integration_score']}</td>
                 <td>{row['identity_score']}</td>
                 <td>{row['submitted_at']}</td>
@@ -195,15 +193,11 @@ async def admin_panel(auth: bool = Depends(verify_admin)):
                 const table = document.getElementById('dataTable');
                 const tr = table.getElementsByTagName('tr');
                 for (let i = 1; i < tr.length; i++) {
-                    let tds = tr[i].getElementsByTagName('td');
-                    let visible = false;
-                    for (let j = 0; j < tds.length; j++) {
-                        if (tds[j] && tds[j].innerText.toLowerCase().indexOf(filter) > -1) {
-                            visible = true;
-                            break;
-                        }
+                    let td = tr[i].getElementsByTagName('td')[0];
+                    if (td) {
+                        let txtValue = td.textContent || td.innerText;
+                        tr[i].style.display = txtValue.toLowerCase().indexOf(filter) > -1 ? '' : 'none';
                     }
-                    tr[i].style.display = visible ? '' : 'none';
                 }
             }
         </script>
