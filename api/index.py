@@ -11,6 +11,10 @@ from typing import Dict, Any, Optional
 app = FastAPI()
 security = HTTPBasic()
 
+@app.get("/")
+async def root():
+    return {"message": "Сервер работает. Используйте /admin или /api/webhook"}
+
 # Переменные окружения (будут заданы в Vercel)
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
