@@ -1,37 +1,93 @@
 import os
 import json
 import asyncpg
-from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
-from typing import Dict, Any, Optional
 
 app = FastAPI()
 security = HTTPBasic()
 
-@app.get("/")
-async def root():
-    return {"message": "Сервер работает. Используйте /admin или /api/webhook"}
-
-# Переменные окружения (будут заданы в Vercel)
 DATABASE_URL = os.getenv("DATABASE_URL")
 ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
-# Подключение к БД
 async def get_db():
-    conn = await asyncpg.connect(DATABASE_URL)
-    return conn
+    return await asyncpg.connect(DATABASE_URL)
 
-# ---- Вебхук для Яндекс.Формы ----
-class WebhookData(BaseModel):
-    participant_id: str
-    phone: Optional[str] = None
-    name: Optional[str] = None
-    answers: Dict[str, Any]
 
+# ========== ЛОГИКА РАСЧЁТА БАЛЛОВ ==========
+def calculate_scores(answers: dict) -> tuple:
+    """
+    Принимает словарь с ответами q1..q18.
+    Возвращает: integration_score, identity_score, result_text
+    """
+    def get_int(q_name):
+        val = answers.get(q_name)
+        try:
+            return int(val)
+        except:
+            return 3  # по умолчанию, если ответа нет
+    
+    # Часть А: интеграция (q1 - q7)
+    integration_answers = [get_int(f"q{i}") for i in range(1, 8)]
+    integration_avg = sum(integration_answers) / 7
+    
+    # Часть Б: идентичность (q8 - q14)
+    identity_answers = [get_int(f"q{i}") for i in range(8, 15)]
+    identity_avg = sum(identity_answers) / 7
+    
+    # Округляем до целых для сохранения в БД (от 10 до 50)
+    integration_score = round(integration_avg * 10)
+    identity_score = round(identity_avg * 10)
+    
+    def get_level(avg):
+        if avg <= 2.4:
+            return "низкий"
+        elif avg <= 3.9:
+            return "средний"
+        else:
+            return "высокий"
+    
+    integration_level = get_level(integration_avg)
+    identity_level = get_level(identity_avg)
+    
+    # Проверяем гармоничность
+    diff = abs(integration_avg - identity_avg)
+    if diff <= 0.5:
+        harmony = "гармоничное развитие"
+    elif integration_avg > identity_avg:
+        harmony = "дисбаланс в сторону интеграции"
+    else:
+        harmony = "дисбаланс в сторону идентичности"
+    
+    # Формируем текст результата
+    result_text = f"""По результатам анкетирования:
+
+📊 **Интеграция в российское общество**: {integration_level} уровень ({integration_avg:.1f} из 5)
+👨‍👩‍👧 **Сохранение национальной идентичности**: {identity_level} уровень ({identity_avg:.1f} из 5)
+⚖️ **Характер развития**: {harmony}
+
+"""
+    
+    # Добавляем рекомендации
+    if integration_level == "низкий" and identity_level == "низкий":
+        result_text += "Рекомендация: обратитесь за поддержкой к классному руководителю, психологу или инспектору ПДН. Участие в групповых занятиях поможет лучше понять себя и окружающих."
+    elif integration_level == "высокий" and identity_level == "высокий":
+        result_text += "Рекомендация: продолжайте участвовать в школьных событиях, делитесь своим опытом со сверстниками. У вас гармоничная позиция!"
+    elif integration_level == "высокий":
+        result_text += "Рекомендация: больше общайтесь с семьёй на родном языке, участвуйте в семейных праздниках. Ваши корни — это ваша сила."
+    elif identity_level == "высокий":
+        result_text += "Рекомендация: активнее включайтесь в школьную жизнь, изучайте историю и традиции России. Это поможет лучше понимать одноклассников."
+    elif integration_level == "низкий" or identity_level == "низкий":
+        result_text += "Рекомендация: обсудите результаты с педагогом-психологом. Вам может помочь участие в программе «На перекрёстке культур: обретая себя»."
+    else:
+        result_text += "Рекомендация: продолжайте участвовать в мероприятиях программы, задавайте вопросы, делитесь своими мыслями с семьёй и учителями."
+    
+    return integration_score, identity_score, result_text
+
+
+# ========== ВЕБХУК ДЛЯ ЯНДЕКС.ФОРМЫ ==========
 @app.post("/api/webhook")
 async def yandex_webhook(request: Request):
     try:
@@ -43,7 +99,15 @@ async def yandex_webhook(request: Request):
     if not participant_id:
         raise HTTPException(status_code=400, detail="participant_id is required")
     
+    # Собираем ответы на вопросы q1...q18
+    answers = {}
+    for i in range(1, 19):
+        q_key = f"q{i}"
+        answers[q_key] = data.get(q_key)
+    
     conn = await get_db()
+    
+    # Проверяем, существует ли участник в таблице participants
     participant = await conn.fetchrow(
         "SELECT participant_id FROM participants WHERE participant_id = $1",
         participant_id
@@ -52,20 +116,20 @@ async def yandex_webhook(request: Request):
         await conn.close()
         raise HTTPException(status_code=404, detail="Participant not found")
     
-    # Заглушка для расчёта баллов (потом замените на свою логику)
-    integration_score = 0
-    identity_score = 0
-    result_text = "Спасибо за участие! Ваши данные сохранены."
+    # Расчёт баллов и текста результата
+    integration_score, identity_score, result_text = calculate_scores(answers)
     
+    # Сохраняем результат в БД
     await conn.execute("""
         INSERT INTO survey_results (participant_id, answers_json, integration_score, identity_score, result_text)
         VALUES ($1, $2, $3, $4, $5)
-    """, participant_id, json.dumps(data.get("answers", {})), integration_score, identity_score, result_text)
+    """, participant_id, json.dumps(answers), integration_score, identity_score, result_text)
     
     await conn.close()
     return {"status": "ok"}
 
-# ---- Админ-панель ----
+
+# ========== АДМИН-ПАНЕЛЬ ==========
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     if credentials.username != ADMIN_USERNAME or credentials.password != ADMIN_PASSWORD:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -147,3 +211,14 @@ async def admin_panel(auth: bool = Depends(verify_admin)):
     </html>
     """
     return html
+
+
+@app.get("/")
+async def root():
+    return {"message": "Сервер работает. Используйте /admin или /api/webhook"}
+
+
+# ========== ДЛЯ ЛОКАЛЬНОГО ЗАПУСКА (НЕ ИСПОЛЬЗУЕТСЯ НА VERCEL) ==========
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
