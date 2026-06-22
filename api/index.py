@@ -209,7 +209,20 @@ async def admin_panel(auth: bool = Depends(verify_admin)):
 async def root():
     return {"message": "Сервер работает. Используйте /admin или /api/webhook"}
 
-
+@app.get("/test-db")
+async def test_db():
+    import traceback
+    try:
+        conn = await get_db()
+        await conn.execute("SELECT 1")
+        await conn.close()
+        return {"status": "Database connection OK"}
+    except Exception as e:
+        return {
+            "status": "Database connection FAILED",
+            "error": str(e),
+            "trace": traceback.format_exc()
+        }
 # ========== ДЛЯ ЛОКАЛЬНОГО ЗАПУСКА (НЕ ИСПОЛЬЗУЕТСЯ НА VERCEL) ==========
 if __name__ == "__main__":
     import uvicorn
