@@ -51,15 +51,23 @@ async def test_db():
             "trace":traceback.format_exc()
         }
 
-@app.get("/debug-db")
-async def debug_db():
-    url = os.getenv("DATABASE_URL","")
-    if "@" not in url:
-        return {"configured":False}
-    left,right=url.split("@",1)
-    user=left.split("://",1)[1].split(":",1)[0]
-    host=right.split("/",1)[0]
-    return {"user":user,"host":host}
+@app.get("/test-db")
+async def test_db():
+    import traceback
+    try:
+        conn = await get_db()
+        val = await conn.fetchval("SELECT current_user")
+        await conn.close()
+        return {
+            "status":"Database connection OK",
+            "current_user": val
+        }
+    except Exception as e:
+        return {
+            "status":"Database connection FAILED",
+            "error":str(e),
+            "trace":traceback.format_exc()
+        }
 
 @app.get("/admin", response_class=HTMLResponse)
 async def admin(auth: bool = Depends(verify_admin)):
@@ -79,6 +87,11 @@ async def admin(auth: bool = Depends(verify_admin)):
     """)
     await conn.close()
 
+
+
+
+
+    
     html="""<html><head><meta charset="utf-8">
     <style>
     table{border-collapse:collapse;width:100%%}
