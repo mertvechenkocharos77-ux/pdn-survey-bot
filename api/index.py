@@ -54,21 +54,39 @@ async def test_db():
 @app.get("/test-db")
 async def test_db():
     import traceback
+
+    url = os.getenv("DATABASE_URL", "")
+
+    # скрываем пароль
+    safe_url = url
+    if "@" in url and "://" in url:
+        prefix, suffix = url.split("@", 1)
+        protocol, rest = prefix.split("://", 1)
+        if ":" in rest:
+            user, _ = rest.split(":", 1)
+            safe_url = f"{protocol}://{user}:******@{suffix}"
+
     try:
-        conn = await get_db()
-        val = await conn.fetchval("SELECT current_user")
+        conn = await asyncpg.connect(url)
+
+        current_user = await conn.fetchval("SELECT current_user")
+
         await conn.close()
+
         return {
-            "status":"Database connection OK",
-            "current_user": val
-        }
-    except Exception as e:
-        return {
-            "status":"Database connection FAILED",
-            "error":str(e),
-            "trace":traceback.format_exc()
+            "status": "OK",
+            "database_url": safe_url,
+            "current_user": current_user
         }
 
+    except Exception as e:
+        return {
+            "status": "FAILED",
+            "database_url": safe_url,
+            "exception": type(e).__name__,
+            "error": str(e),
+            "trace": traceback.format_exc()
+        }
 @app.get("/admin", response_class=HTMLResponse)
 async def admin(auth: bool = Depends(verify_admin)):
     conn = await get_db()
