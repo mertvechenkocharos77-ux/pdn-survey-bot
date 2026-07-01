@@ -18,6 +18,19 @@ async def get_db():
         raise RuntimeError("DATABASE_URL is not configured")
     return await asyncpg.connect(DATABASE_URL)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 def verify_admin(credentials: HTTPBasicCredentials = Depends(security)):
     ok_user = secrets.compare_digest(credentials.username, ADMIN_USERNAME)
     ok_pass = secrets.compare_digest(credentials.password, ADMIN_PASSWORD)
@@ -123,3 +136,24 @@ async def admin(auth: bool = Depends(verify_admin)):
         html += f"<tr><td>{row['participant_id']}</td><td>{row['class'] or ''}</td><td>{row['integration_score']}</td><td>{row['identity_score']}</td><td>{row['submitted_at']}</td><td>{row['result_text'] or ''}</td></tr>"
     html += "</table></body></html>"
     return html
+
+
+
+
+
+
+@app.get("/debug-db")
+async def debug_db():
+    url = os.getenv("DATABASE_URL", "")
+
+    safe_url = url
+    if "@" in url and "://" in url:
+        prefix, suffix = url.split("@", 1)
+        protocol, rest = prefix.split("://", 1)
+        if ":" in rest:
+            user, _ = rest.split(":", 1)
+            safe_url = f"{protocol}://{user}:******@{suffix}"
+
+    return {
+        "database_url": safe_url
+    }
